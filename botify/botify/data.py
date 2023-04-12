@@ -1,9 +1,7 @@
 import logging
 from dataclasses import dataclass, asdict
 from logging.handlers import RotatingFileHandler
-
 from pythonjsonlogger import jsonlogger
-
 from botify.experiment import Experiments
 
 

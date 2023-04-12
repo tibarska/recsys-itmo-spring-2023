@@ -11,12 +11,14 @@ from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
-from botify.recommenders.indexed import Indexed
 from botify.recommenders.random import Random
+from botify.recommenders.toppop import TopPop
+from botify.recommenders.contextual import Contextual
+from botify.recommenders.my_reco import My_Reco
 from botify.track import Catalog
+from botify.history import History
 
 import numpy as np
-
 root = logging.getLogger()
 root.setLevel("INFO")
 
@@ -27,12 +29,12 @@ api = Api(app)
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 recommendations_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS")
+history_redis = Redis(app, config_prefix='REDIS_HISTORY')
 
 data_logger = DataLogger(app)
+history = History(app)
 
-catalog = Catalog(app).load(
-    app.config["TRACKS_CATALOG"], app.config["TOP_TRACKS_CATALOG"]
-)
+catalog = Catalog(app).load( app.config["TRACKS_CATALOG"], app.config["TOP_TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
 catalog.upload_recommendations(recommendations_redis.connection)
@@ -49,7 +51,6 @@ class Hello(Resource):
             "message": "welcome to botify, the best toy music recommender",
         }
 
-
 class Track(Resource):
     def get(self, track: int):
         data = tracks_redis.connection.get(track)
@@ -58,33 +59,20 @@ class Track(Resource):
         else:
             abort(404, description="Track not found")
 
-
 class NextTrack(Resource):
     def post(self, user: int):
         start = time.time()
-
         args = parser.parse_args()
-
-        # TODO Seminar 5 step 3: Wire CONTEXTUAL A/B experiment
-        treatment = Experiments.PERSONALIZED.assign(user)
+        treatment = Experiments.MY_RECO.assign(user)
         if treatment == Treatment.T1:
-            recommender = Indexed(tracks_redis, recommendations_redis, catalog)
+            recommender = My_Reco(tracks_redis.connection, history_redis.connection, history,
+                                  recommendations_redis.connection, catalog, catalog.top_tracks[:])
         else:
-            recommender = Random(tracks_redis.connection)
+            recommender = Contextual(tracks_redis.connection, catalog)
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
-
-        data_logger.log(
-            "next",
-            Datum(
-                int(datetime.now().timestamp() * 1000),
-                user,
-                args.track,
-                args.time,
-                time.time() - start,
-                recommendation,
-            ),
-        )
+        # TODO uncomment logging (commented because of much info)
+        data_logger.log( "next", Datum( int(datetime.now().timestamp() * 1000), user, args.track, args.time, time.time() - start, recommendation, ), )
         return {"user": user, "track": recommendation}
 
 
@@ -92,18 +80,10 @@ class LastTrack(Resource):
     def post(self, user: int):
         start = time.time()
         args = parser.parse_args()
-        data_logger.log(
-            "last",
-            Datum(
-                int(datetime.now().timestamp() * 1000),
-                user,
-                args.track,
-                args.time,
-                time.time() - start,
-            ),
-        )
+        history.delete(history_redis.connection, user)
+        # TODO uncomment logging (commented because of much info)
+        data_logger.log("last", Datum(int(datetime.now().timestamp() * 1000), user, args.track, args.time, time.time() - start, ), )
         return {"user": user}
-
 
 api.add_resource(Hello, "/")
 api.add_resource(Track, "/track/<int:track>")

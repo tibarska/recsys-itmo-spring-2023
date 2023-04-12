@@ -12,13 +12,11 @@ class Track:
     title: str
     recommendations: List[int] = field(default=lambda: [])
 
-
 class Catalog:
     """
     A helper class used to load track data upon server startup
     and store the data to redis.
     """
-
     def __init__(self, app):
         self.app = app
         self.tracks = []
@@ -29,21 +27,13 @@ class Catalog:
         with open(catalog_path) as catalog_file:
             for j, line in enumerate(catalog_file):
                 data = json.loads(line)
-                self.tracks.append(
-                    Track(
-                        data["track"],
-                        data["artist"],
-                        data["title"],
-                        data.get("recommendations", []),
-                    )
-                )
+                self.tracks.append(Track( data["track"], data["artist"],data["title"], data.get("recommendations", []),))
         self.app.logger.info(f"Loaded {j+1} tracks")
-
         self.app.logger.info(f"Loading top tracks from {top_tracks_path}")
+
         with open(top_tracks_path) as top_tracks_path_file:
             self.top_tracks = json.load(top_tracks_path_file)
         self.app.logger.info(f"Loaded top tracks {self.top_tracks[:3]} ...")
-
         return self
 
     def upload_tracks(self, redis):
@@ -62,13 +52,17 @@ class Catalog:
             redis.set(artist, self.to_bytes(artist_tracks))
         self.app.logger.info(f"Uploaded {j + 1} artists")
 
+    def upload_history(self, redis):
+        self.app.logger.info(f"Uploading history to redis")
+        for track in self.tracks:
+            redis.set(track.track, self.to_bytes(track))
+        self.app.logger.info(f"Uploaded {len(self.tracks)} tracks")
+
     def upload_recommendations(self, redis):
         recommendations_file_path = self.app.config["RECOMMENDATIONS_FILE_PATH"]
-
         self.app.logger.info(
             f"Uploading recommendations to redis from {recommendations_file_path}"
         )
-
         j = 0
         with open(recommendations_file_path) as rf:
             for line in rf:
